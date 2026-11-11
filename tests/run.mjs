@@ -87,7 +87,7 @@ await t('가짜 손으로 한 판: 손바닥 → 주먹 → 펴기 → 결과 �
   await shot('2-aim');
   const r2 = await ev(`const a=A(), tr=a.tracker;
     tr.inject({present:true,x:0.62,y:0.3,open:0.95}); await until(()=>a.G.state==='fly'||a.G.state==='settle',3000,'발사');
-    await until(()=>a.G.state==='result',4000,'결과');
+    await until(()=>a.G.state==='result',9000,'결과');
     const win=a.G.win, n=a.S.segs.length; assert(win===-1||(win>=0&&win<n),'당첨 칸 '+win);
     assert(!$('#result').hidden,'결과 카드'); const name=$('#resultName').textContent, num=$('#resultNum').textContent;
     assert(win===-1||num===(win+1)+'번','번호 '+num); await wait(700); return {win,num,name}`);
@@ -113,6 +113,15 @@ await t('판정: 칸 번호가 꽂힌 위치와 맞음(100번, 4·8칸)', async 
     assert(bad===0,'어긋난 판정 '+bad); return '칸 종류 '+seen.size+'가지, 정중앙 '+bull+'번'`, 60000);
 });
 
+await t('천천히 날아가며 휘어짐: 처음엔 겨눈 쪽, 끝은 꽂힐 곳, 겨눈 곳에서 늘 벗어남', async () => {
+  return await ev(`const a=A(), G=a.G; a.applySettings({...a.S, scatter:60, flight:55, spin:30}); assert(a.D.flightMs>1800&&a.D.flightMs<2100,'비행 시간 '+a.D.flightMs);
+    let minOff=1e9, maxOff=0; for (let k=0;k<60;k++){ G.state='wait'; const x=G.cx+G.r*0.3, y=G.cy-G.r*0.2; a.quickThrow(performance.now(),{x,y}); const f=G.fly, off=Math.hypot(f.x1-x,f.y1-y)/G.r; minOff=Math.min(minOff,off); maxOff=Math.max(maxOff,off); assert(f.ax===x&&f.ay===y,'겨눈 곳 기록'); }
+    assert(minOff>0.07&&maxOff<=0.1801,'벗어남 범위 '+minOff+'-'+maxOff);
+    const t0=performance.now(); G.state='wait'; a.quickThrow(t0,{x:G.cx,y:G.cy-G.r*0.5}); await wait(500); assert(G.state==='fly','0.5초 뒤에도 날아가는 중: '+G.state);
+    await until(()=>G.state==='settle',4000,'꽂힘'); const took=performance.now()-t0; assert(took>1700,'비행 시간 '+took); await until(()=>G.state==='result',4000,'결과'); a.quickThrow(performance.now());
+    return '벗어남 '+minOff.toFixed(2)+'-'+maxOff.toFixed(2)+'R, 비행 '+Math.round(took)+'ms'`, 30000);
+});
+
 await t('빗나감 없음: 판 밖을 겨눠도 판 안에 꽂힘', async () => {
   return await ev(`const a=A(), G=a.G; a.applySettings({...a.S, scatter:100}); let max=0;
     for (let k=0;k<40;k++){ G.state='wait'; a.quickThrow(performance.now(),{x:G.cx+G.r*3*(Math.random()-0.5)*2,y:G.cy+G.r*3*(Math.random()-0.5)*2}); const f=G.fly; max=Math.max(max,Math.hypot(f.x1-G.cx,f.y1-G.cy)/G.r); }
@@ -123,7 +132,7 @@ await t('스페이스바로 던지기(대체 입력)', async () => {
   await ev(`const a=A(); await until(()=>a.G.state==='wait',6000,'wait'); a.applySettings({...a.S, resultSec:3});`);
   await send('Input.dispatchKeyEvent', { type: 'keyDown', code: 'Space', key: ' ', windowsVirtualKeyCode: 32 });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', code: 'Space', key: ' ', windowsVirtualKeyCode: 32 });
-  const r = await ev(`const a=A(); await until(()=>a.G.state==='result',5000,'결과'); return $('#resultNum').textContent`);
+  const r = await ev(`const a=A(); await until(()=>a.G.state==='result',9000,'결과'); return $('#resultNum').textContent`);
   noErrors('스페이스'); return r;
 });
 

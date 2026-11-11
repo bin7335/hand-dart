@@ -192,15 +192,28 @@ function drawAim(now) {
   }
   ctx.restore();
 }
+// 날아가는 다트의 위치. 처음엔 겨눈 곳(ax, ay)으로 가다가 바람을 탄 듯 휘어서 실제로 꽂힐 곳(x1, y1)에 닿는다.
+function flyProgress(now) { const f = G.fly, t = f.dur > 0 ? clamp01((now - f.t0) / f.dur) : 1; return 1 - (1 - t) ** 1.7; } // 멀어질수록 느려 보인다
+function flyPos(e) {
+  const f = G.fly, q = clamp01(e), bend = clamp01((q - 0.25) / 0.75), drift = bend * bend * (3 - 2 * bend);
+  const sway = Math.sin(q * Math.PI * 2.4 + f.phase) * (1 - q) ** 1.2 * f.sway;
+  return {
+    x: f.x0 + (f.ax - f.x0) * q + (f.x1 - f.ax) * drift + f.nx * sway,
+    y: f.y0 + (f.ay - f.y0) * q + (f.y1 - f.ay) * drift + f.ny * sway - Math.sin(Math.PI * q) * G.h * 0.07,
+  };
+}
 function drawFly(now) {
   const f = G.fly; if (!f || G.state !== 'fly') return;
-  const t = clamp01((now - f.t0) / f.dur), e = 1 - (1 - t) ** 3;
-  const pos = q => ({ x: f.x0 + (f.x1 - f.x0) * q, y: f.y0 + (f.y1 - f.y0) * q - Math.sin(Math.PI * Math.min(1, q)) * G.h * 0.05 });
-  const p = pos(e), ang = Math.atan2(f.y0 - f.y1, f.x0 - f.x1);
-  ctx.save(); ctx.lineCap = 'round';
-  for (let i = 1; i <= 5; i++) { const q = pos(Math.max(0, e - i * 0.045)); ctx.globalAlpha = 0.16 * (1 - i / 6); ctx.strokeStyle = INK; ctx.lineWidth = G.r * 0.03 * (3 - 2 * e); ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(q.x + Math.cos(ang) * G.r * 0.2, q.y + Math.sin(ang) * G.r * 0.2); ctx.stroke(); }
+  const e = flyProgress(now), p = flyPos(e), back = flyPos(e - 0.03), far = (1 - e) ** 1.4;
+  const ang = e < 0.03 ? Math.atan2(f.y0 - f.ay, f.x0 - f.ax) : Math.atan2(back.y - p.y, back.x - p.x);
+  // 판 위에 드리운 그림자: 다트가 판에 가까워질수록 다트 쪽으로 모인다
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(p.x + G.r * 0.1 * far, p.y + G.r * (0.06 + 0.5 * far), G.r * (0.05 + 0.1 * far), G.r * (0.02 + 0.035 * far), 0, 0, TAU);
+  ctx.fillStyle = `rgba(28,32,48,${0.26 - 0.16 * far})`; ctx.fill();
+  ctx.lineCap = 'round';
+  for (let i = 1; i <= 6; i++) { const q = flyPos(e - i * 0.022); ctx.globalAlpha = 0.14 * (1 - i / 7); ctx.strokeStyle = INK; ctx.lineWidth = G.r * 0.022 * (1 + 2 * far); ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(q.x + Math.cos(ang) * G.r * 0.16, q.y + Math.sin(ang) * G.r * 0.16); ctx.stroke(); }
   ctx.restore();
-  drawDart(p.x, p.y, 3.2 - 2.38 * e, ang);
+  drawDart(p.x, p.y, 1 + 2.7 * far, ang);
 }
 function burst(x, y) {
   const cols = S.segs.map(g => g.color).concat(ACCENT, '#ffffff');
@@ -226,7 +239,7 @@ function handToStage(h) {
 // 겨누는 동안 조준점이 살짝 떠다닌다(반쯤 운).
 function aimPoint(now) {
   if (G.state !== 'aim') return G.aim;
-  const wob = D.scatter * G.r * 0.4;
+  const wob = D.scatter * G.r * 0.5;
   return { x: G.aim.x + Math.sin(now / 310) * wob, y: G.aim.y + Math.cos(now / 265) * wob * 0.8 };
 }
 function grab(now) {
@@ -234,20 +247,23 @@ function grab(now) {
   buddy.setMood('tense'); buddy.talk(pick(['두근두근…', '잘 겨눠 봐요!', '꽉 잡았어요!']), 1800);
 }
 function fire(px, py, now) {
-  const sc = D.scatter * G.r, a = Math.random() * TAU, rad = sc * Math.sqrt(Math.random());
+  // 겨눈 곳에서 얼마나 벗어날지: 늘 조금은 벗어나게 한다(흩어짐 반지름의 45-100%)
+  const sc = D.scatter * G.r, a = Math.random() * TAU, rad = sc * (0.45 + 0.55 * Math.random());
   let tx = px + Math.cos(a) * rad, ty = py + Math.sin(a) * rad;
   const dx = tx - G.cx, dy = ty - G.cy, d = Math.hypot(dx, dy), max = G.r * 0.94;
   if (d > max) { tx = G.cx + dx / d * max; ty = G.cy + dy / d * max; } // 빗나감 없음: 판 밖이면 가장자리에 꽂힌다
   G.stuck = null;
-  G.fly = { x0: G.w * 0.5 + (px - G.cx) * 0.3, y0: G.h + G.r * 0.35, x1: tx, y1: ty, t0: now, dur: 480 };
-  go('fly', now); sfx.throw(); buddy.setMood('idle'); buddy.antic('leap'); buddy.talk('슈웅!', 900);
+  const x0 = G.w * 0.5 + (px - G.cx) * 0.3, y0 = G.h + G.r * 0.35, len = Math.hypot(px - x0, py - y0) || 1;
+  G.fly = { x0, y0, ax: px, ay: py, x1: tx, y1: ty, t0: now, dur: D.flightMs, nx: -(py - y0) / len, ny: (px - x0) / len, sway: (0.04 + D.scatter * 0.9) * G.r * (Math.random() < 0.5 ? -1 : 1), phase: Math.random() * 1.2 };
+  go('fly', now, D.flightMs > 1200 ? '슈웅… 어디로 갈까요?' : ''); sfx.throw(D.flightMs / 1000); buddy.setMood('tense'); buddy.antic('leap'); buddy.talk('슈웅!', Math.max(900, D.flightMs));
 }
 function land(now) {
   const f = G.fly, dx = f.x1 - G.cx, dy = f.y1 - G.cy, d = Math.hypot(dx, dy), local = Math.atan2(dy, dx) - G.angle;
-  G.stuck = { a: local, d: d / G.r, rot: Math.atan2(f.y0 - f.y1, f.x0 - f.x1) - G.angle };
+  const back = flyPos(0.96); // 날아온 방향 그대로 꽂힌다
+  G.stuck = { a: local, d: d / G.r, rot: Math.atan2(back.y - f.y1, back.x - f.x1) - G.angle };
   const n = S.segs.length, phi = (((local + Math.PI / 2) % TAU) + TAU) % TAU;
   G.win = S.bull && d < G.r * BULL ? -1 : Math.min(n - 1, Math.floor(phi / (TAU / n)));
-  G.spinTarget = 0; go('settle', now); sfx.thunk();
+  G.spinTarget = 0; go('settle', now); sfx.thunk(); buddy.setMood('idle');
   stage.classList.remove('is-thunk'); void stage.offsetWidth; stage.classList.add('is-thunk');
 }
 function showResult(now) {
@@ -337,7 +353,9 @@ function frame(now) {
   ctx.setTransform(G.dpr, 0, 0, G.dpr, 0, 0); ctx.clearRect(0, 0, G.w, G.h);
   drawBoard(now); drawAim(now); drawFly(now); drawBits(dt);
   updateSide(now);
-  buddy.tick(now, G.aimOn ? G.aim : null, G.state === 'wait', G.state === 'ready' || G.state === 'aim');
+  // 도우미는 날아가는 다트를 눈으로 좇는다
+  const look = G.state === 'fly' && G.fly ? flyPos(flyProgress(now)) : G.aimOn ? G.aim : null;
+  buddy.tick(now, look, G.state === 'wait', G.state === 'ready' || G.state === 'aim');
   requestAnimationFrame(frame);
 }
 

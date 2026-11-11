@@ -5,9 +5,11 @@ export const MIN_SEGS = 2, MAX_SEGS = 8;
 
 export function defaults() {
   return {
+    v: 2,
     segs: [1, 2, 3, 4].map(i => ({ name: '체험 ' + i, color: PALETTE[i - 1] })),
     spin: 30,       // 판 회전 속도 0-100
-    scatter: 40,    // 운의 크기 0-100
+    scatter: 60,    // 운의 크기 0-100
+    flight: 55,     // 다트가 날아가는 시간 0(빠르게)-100(아주 천천히)
     lenient: 70,    // 손동작 판정 0(엄격)-100(후하게)
     bull: true,     // 정중앙 자유 선택
     resultSec: 7,
@@ -26,7 +28,10 @@ export function sanitize(raw) {
   if (segs.length < MIN_SEGS) segs = d.segs;
   return {
     segs,
-    spin: clamp(s.spin, 0, 100, d.spin), scatter: clamp(s.scatter, 0, 100, d.scatter), lenient: clamp(s.lenient, 0, 100, d.lenient),
+    v: 2,
+    // v1에서 저장한 값이 예전 기본값(40)이면 새 기본값으로 올린다. 직접 바꾼 값은 그대로 둔다.
+    spin: clamp(s.spin, 0, 100, d.spin), scatter: s.v !== 2 && Number(s.scatter) === 40 ? d.scatter : clamp(s.scatter, 0, 100, d.scatter), lenient: clamp(s.lenient, 0, 100, d.lenient),
+    flight: clamp(s.flight, 0, 100, d.flight),
     bull: typeof s.bull === 'boolean' ? s.bull : d.bull,
     resultSec: clamp(s.resultSec, 3, 15, d.resultSec),
     sound: typeof s.sound === 'boolean' ? s.sound : d.sound,
@@ -43,6 +48,7 @@ export function derive(s) {
   return {
     spinRad: (s.spin / 100) * 1.6,              // 초당 라디안. 100이면 약 4초에 한 바퀴
     scatter: (s.scatter / 100) * 0.3,           // 판 반지름 대비 흩어짐
+    flightMs: 400 + 28 * s.flight,              // 0.4초-3.2초. 길수록 판이 더 돌아가서 운이 커진다
     fistBelow: 0.22 + 0.2 * g,                  // 펴진 정도가 이 값보다 작으면 주먹
     openAbove: 0.74 - 0.2 * g,                  // 이 값보다 크면 손바닥
     grabHoldMs: 420 - 280 * g,                  // 주먹을 이만큼 유지해야 다트를 잡는다
@@ -52,6 +58,7 @@ export function derive(s) {
 }
 const SPIN_WORD = v => v === 0 ? '멈춤' : v < 25 ? '아주 천천히' : v < 50 ? '천천히' : v < 75 ? '보통' : '빠르게';
 const SCATTER_WORD = v => v === 0 ? '겨눈 대로' : v < 35 ? '조금' : v < 70 ? '반쯤 운' : '거의 운';
+const FLIGHT_WORD = v => v < 20 ? '빠르게' : v < 45 ? '보통' : v < 75 ? '천천히' : '아주 천천히';
 const LENIENT_WORD = v => v < 30 ? '엄격하게' : v < 65 ? '보통' : '후하게';
 
 // 설정 창. onChange(settings)는 값이 바뀔 때마다 불린다(바로 반영·저장).
@@ -80,12 +87,13 @@ export function bindSettings({ dialog, get, set, cameras, onCamera }) {
     const s = get();
     $('setSpin').value = s.spin; $('outSpin').textContent = SPIN_WORD(s.spin);
     $('setScatter').value = s.scatter; $('outScatter').textContent = SCATTER_WORD(s.scatter);
+    $('setFlight').value = s.flight; $('outFlight').textContent = FLIGHT_WORD(s.flight);
     $('setLenient').value = s.lenient; $('outLenient').textContent = LENIENT_WORD(s.lenient);
     $('setResult').value = s.resultSec; $('outResult').textContent = s.resultSec + '초';
     $('setBull').checked = s.bull; $('setSound').checked = s.sound;
   }
   const range = (id, key) => $(id).addEventListener('input', e => { commit(st => { st[key] = Number(e.target.value); }); renderValues(); });
-  range('setSpin', 'spin'); range('setScatter', 'scatter'); range('setLenient', 'lenient'); range('setResult', 'resultSec');
+  range('setSpin', 'spin'); range('setScatter', 'scatter'); range('setLenient', 'lenient'); range('setFlight', 'flight'); range('setResult', 'resultSec');
   $('setBull').addEventListener('change', e => commit(st => { st.bull = e.target.checked; }));
   $('setSound').addEventListener('change', e => commit(st => { st.sound = e.target.checked; }));
   $('btnAddSeg').addEventListener('click', () => {
