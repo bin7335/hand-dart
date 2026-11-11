@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>손짓 다트 · 손으로 던져 체험을 골라요</title>
+<meta name="description" content="웹캠 앞에서 주먹을 쥐었다 펴면 다트가 날아가요. 박람회 부스에서 어떤 체험을 할지 골라 주는 손 인식 다트판이에요.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob: mediastream:; connect-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="slab">
+  <div class="slab__row">
+    <span class="wordmark">손짓 다트</span>
+    <span class="slab__sub">손으로 던져서 체험을 골라요</span>
+    <span class="slab__ai" id="aiChip" data-on="0"><i></i><b id="aiChipText">손 인식 준비 중</b></span>
+    <button class="iconbtn" id="btnFull" type="button" title="전체 화면 (F)">전체 화면</button>
+    <button class="iconbtn" id="btnSet" type="button" title="설정 (S)">설정</button>
+  </div>
+</header>
+
+<main class="play">
+  <section class="stage" id="stage" aria-label="다트판">
+    <canvas id="board"></canvas>
+
+    <div class="coach" id="coach" data-step="wait">
+      <span class="coach__icon" id="coachIcon"></span>
+      <span class="coach__text" id="coachText">손바닥을 카메라에 보여 주세요</span>
+    </div>
+
+    <div class="buddy" id="buddy">
+      <span class="bubble" id="buddySay" hidden></span>
+      <span data-mascot></span>
+    </div>
+
+    <div class="result" id="result" hidden>
+      <p class="result__eyebrow" id="resultEyebrow">다트가 꽂힌 곳은</p>
+      <p class="result__num" id="resultNum">1번</p>
+      <p class="result__name" id="resultName">체험 1</p>
+      <p class="result__go" id="resultGo">이 체험으로 가 볼까요?</p>
+      <div class="result__bar"><i id="resultBar"></i></div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div class="cam" id="cam" data-live="0">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="cam__empty" id="camEmpty"><p id="camEmptyText">카메라가 꺼져 있어요</p><button class="btn btn--primary btn--small" id="btnCamOn" type="button">카메라 켜기</button></div>
+      <span class="cam__tag">AI가 보는 화면</span>
+    </div>
+    <div class="seen">
+      <span class="seen__label">AI가 알아본 손</span>
+      <span class="seen__pose" id="seenPose">아직 없어요</span>
+      <div class="seen__meter" title="손이 펴진 정도"><i id="seenMeter"></i></div>
+    </div>
+
+    <ol class="steps" id="steps">
+      <li data-step="wait"><span class="steps__icon" data-hand="palm"></span><span><b>손바닥 보여 주기</b><em>카메라가 손을 찾아요</em></span></li>
+      <li data-step="ready"><span class="steps__icon" data-hand="fist"></span><span><b>주먹 쥐기</b><em>다트를 꽉 잡아요</em></span></li>
+      <li data-step="aim"><span class="steps__icon" data-hand="throw"></span><span><b>손 펴기</b><em>활짝 펴면 발사!</em></span></li>
+    </ol>
+
+    <div class="legend">
+      <p class="legend__title">어떤 체험이 나올까요?</p>
+      <ul id="legend"></ul>
+    </div>
+  </aside>
+</main>
+
+<footer class="fine">
+  <span>카메라 영상은 이 컴퓨터 안에서만 쓰고, 저장하거나 보내지 않아요.</span>
+  <span>Claude Code로 만든 비공식 체험용 앱이에요. Anthropic 공식 서비스가 아니에요.</span>
+</footer>
+
+<!-- 운영자가 한 번 누르는 시작 화면: 카메라와 소리를 켠다 -->
+<div class="gate" id="gate">
+  <div class="gate__card">
+    <div class="gate__hello"><span data-mascot id="gateMascot"></span><span class="bubble">안녕하세요! 손으로 다트를 던져 볼까요?</span></div>
+    <h1>손짓 다트</h1>
+    <p class="gate__lead">주먹을 쥐면 다트를 잡고, 손을 펴면 날아가요. 다트가 꽂힌 칸의 체험을 하러 가면 돼요.</p>
+    <label class="field"><span>카메라</span>
+      <select id="camSelect"><option value="">기본 카메라</option></select>
+    </label>
+    <p class="gate__status" id="gateStatus">손 인식 모델을 불러오는 중이에요…</p>
+    <div class="gate__btns">
+      <button class="btn btn--primary" id="btnStart" type="button">카메라 켜고 시작하기</button>
+      <button class="btn" id="btnNoCam" type="button">카메라 없이 해 보기</button>
+    </div>
+    <p class="gate__hint">운영 단축키: 스페이스바 던지기 · S 설정 · F 전체 화면</p>
+  </div>
+</div>
+
+<dialog class="sheet" id="sheet" aria-label="설정">
+  <form method="dialog" class="sheet__form" id="sheetForm">
+    <div class="sheet__head"><h2>설정</h2><button class="iconbtn iconbtn--ink" value="close" type="submit">닫기</button></div>
+    <div class="sheet__body">
+      <section>
+        <h3>다트판 칸 <small id="segCount"></small></h3>
+        <ul class="segs" id="segList"></ul>
+        <button class="btn btn--small" id="btnAddSeg" type="button">칸 추가</button>
+      </section>
+      <section>
+        <h3>판정과 운</h3>
+        <label class="range"><span>판 회전 속도</span><input type="range" id="setSpin" min="0" max="100" step="1"><output id="outSpin"></output></label>
+        <label class="range"><span>운의 크기 (다트가 흩어지는 정도)</span><input type="range" id="setScatter" min="0" max="100" step="1"><output id="outScatter"></output></label>
+        <label class="range"><span>손동작 판정</span><input type="range" id="setLenient" min="0" max="100" step="1"><output id="outLenient"></output></label>
+        <label class="check"><input type="checkbox" id="setBull"><span>정중앙에 꽂히면 원하는 체험 고르기</span></label>
+      </section>
+      <section>
+        <h3>진행</h3>
+        <label class="range"><span>결과 보여 주는 시간</span><input type="range" id="setResult" min="3" max="15" step="1"><output id="outResult"></output></label>
+        <label class="check"><input type="checkbox" id="setSound"><span>효과음 켜기</span></label>
+        <label class="field"><span>카메라</span><select id="camSelect2"><option value="">기본 카메라</option></select></label>
+      </section>
+    </div>
+    <div class="sheet__foot">
+      <button class="btn btn--small" id="btnReset" type="button">처음 값으로</button>
+      <button class="btn btn--primary btn--small" value="close" type="submit">저장하고 닫기</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

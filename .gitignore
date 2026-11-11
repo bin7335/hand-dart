@@ -1,0 +1,4 @@
+tests/report.json
+tests/shots/
+node_modules/
+.claude/
