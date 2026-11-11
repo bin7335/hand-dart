@@ -113,6 +113,9 @@ button { cursor: pointer; }
 .mas--squash .mas__all { transform-box: fill-box; transform-origin: 50% 100%; animation: mas-squash 450ms var(--ease-spring) 1; }
 @keyframes mas-squash { 35% { transform: scale(1.2, 0.7); } 70% { transform: scale(0.92, 1.12); } }
 
+/* 성능 표시(P 키) */
+.hud { position: absolute; right: calc(var(--u) * 0.8); bottom: calc(var(--u) * 0.8); margin: 0; padding: calc(var(--u) * 0.5) calc(var(--u) * 0.8); border-radius: calc(var(--u) * 0.6); background: oklch(20% 0.014 255 / 0.82); color: var(--color-paper); font: 600 calc(var(--u) * 0.78)/1.5 ui-monospace, Consolas, monospace; white-space: pre; pointer-events: none; }
+
 /* 결과 카드 */
 .result { position: absolute; left: 50%; top: 50%; width: min(78%, calc(var(--u) * 34)); transform: translate(-50%, -50%); padding: calc(var(--u) * 1.6) calc(var(--u) * 2) calc(var(--u) * 1.4); border-radius: var(--radius-card); background: var(--color-card); box-shadow: 0 0 0 calc(var(--u) * 0.4) var(--seg, var(--color-accent)), 0 30px 60px -20px oklch(20% 0.014 255 / 0.5); text-align: center; animation: result-in 520ms var(--ease-spring) 1; pointer-events: none; }
 @keyframes result-in { 0% { transform: translate(-50%, -50%) scale(0.5) rotate(-4deg); opacity: 0; } }
@@ -137,7 +140,7 @@ button { cursor: pointer; }
 .seen__label { font-size: calc(var(--u) * 0.8); color: var(--color-muted); font-weight: 600; }
 .seen__pose { justify-self: end; font-size: calc(var(--u) * 1.15); font-weight: 800; }
 .seen__meter { grid-column: 1 / -1; height: calc(var(--u) * 0.4); border-radius: var(--radius-pill); background: var(--color-paper-3); overflow: hidden; }
-.seen__meter i { display: block; height: 100%; width: 0%; border-radius: inherit; background: var(--color-blue); transition: width 90ms linear; }
+.seen__meter i { display: block; height: 100%; width: 100%; border-radius: inherit; background: var(--color-blue); transform-origin: left; transform: scaleX(0); transition: transform 90ms linear; }
 
 .steps { flex: none; display: grid; gap: calc(var(--u) * 0.4); }
 .steps li { display: flex; align-items: center; gap: calc(var(--u) * 0.7); padding: calc(var(--u) * 0.45) calc(var(--u) * 0.7); border-radius: var(--radius-stock); color: var(--color-muted); transition: background-color 200ms, color 200ms, transform 300ms var(--ease-spring); }

@@ -11,7 +11,8 @@ const INK = '#1c2030', PAPER = '#f8f5ec', ACCENT = '#f2cc3a', CORAL = '#e9604c';
 const clamp01 = v => Math.min(1, Math.max(0, v));
 const pick = a => a[Math.floor(Math.random() * a.length)];
 
-const stage = $('#stage'), cv = $('#board'), ctx = cv.getContext('2d');
+const stage = $('#stage'), cv = $('#board');
+let ctx = cv.getContext('2d');
 const coach = $('#coach'), coachIcon = $('#coachIcon'), coachText = $('#coachText');
 const resultBox = $('#result'), gate = $('#gate'), cam = $('#cam');
 
@@ -102,12 +103,17 @@ function fitLabel(text, maxW, big, small) {
   return { lines: [trim(a), trim(b)], px: small };
 }
 let fontFamily = '';
-function drawBoard(now) {
-  const { cx, cy, r } = G, n = S.segs.length, step = TAU / n, showWin = G.state === 'result';
-  ctx.save(); ctx.translate(cx, cy);
-  ctx.beginPath(); ctx.arc(0, r * 0.05, r * 1.075, 0, TAU); ctx.fillStyle = 'rgba(28,32,48,0.16)'; ctx.fill();
+// 다트판 그림(칸·번호·이름)은 설정이나 크기가 바뀔 때만 한 번 그려 두고, 매 프레임에는 그 그림을 돌려서 붙이기만 한다.
+const sprite = { cv: document.createElement('canvas'), key: '', half: 0 };
+function boardSprite() {
+  const { r, dpr } = G, n = S.segs.length, step = TAU / n, showWin = G.state === 'result';
+  const key = [Math.round(r * dpr), dpr, JSON.stringify(S.segs), showWin ? G.win : 'x', fontFamily].join('|');
+  if (sprite.key === key) return sprite;
+  sprite.key = key; sprite.half = r * 1.1;
+  sprite.cv.width = sprite.cv.height = Math.max(2, Math.ceil(sprite.half * 2 * dpr));
+  const main = ctx; ctx = sprite.cv.getContext('2d'); // 아래 그리기 함수들이 쓰는 ctx를 잠깐 바꿔 둔다
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, sprite.half * 2, sprite.half * 2); ctx.translate(sprite.half, sprite.half);
   ctx.beginPath(); ctx.arc(0, 0, r * 1.075, 0, TAU); ctx.fillStyle = INK; ctx.fill();
-  ctx.rotate(G.angle);
   for (let i = 0; i < n; i++) {
     const a0 = -Math.PI / 2 + i * step, a1 = a0 + step;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r, a0, a1); ctx.closePath();
@@ -125,7 +131,6 @@ function drawBoard(now) {
   for (let i = 0; i < n; i++) {
     const mid = -Math.PI / 2 + (i + 0.5) * step, col = inkOn(S.segs[i].color), dim = showWin && G.win !== i;
     ctx.save(); ctx.rotate(mid + Math.PI / 2); ctx.globalAlpha = dim ? 0.35 : 1;
-    const bump = showWin && G.win === i ? 1 + 0.05 * Math.sin(now / 130) : 1; ctx.scale(bump, bump);
     ctx.fillStyle = col; ctx.font = `900 ${r * (n > 6 ? 0.17 : 0.21)}px ${fontFamily}`;
     ctx.fillText(String(i + 1), 0, -r * 0.76);
     const rho = r * 0.5, maxW = Math.min(r * 1.15, 2 * rho * Math.sin(step / 2) * 0.86);
@@ -134,6 +139,17 @@ function drawBoard(now) {
     lab.lines.forEach((ln, k) => ctx.fillText(ln, 0, -rho + (k - (lab.lines.length - 1) / 2) * lab.px * 1.16));
     ctx.restore();
   }
+  ctx = main;
+  return sprite;
+}
+function drawBoard(now) {
+  const sp = boardSprite();
+  const { cx, cy, r } = G, n = S.segs.length, step = TAU / n, showWin = G.state === 'result';
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.beginPath(); ctx.arc(0, r * 0.05, r * 1.075, 0, TAU); ctx.fillStyle = 'rgba(28,32,48,0.16)'; ctx.fill();
+  ctx.rotate(G.angle);
+  ctx.drawImage(sp.cv, -sp.half, -sp.half, sp.half * 2, sp.half * 2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   // 정중앙
   if (S.bull) {
     const pulse = showWin && G.win === -1 ? 1 + 0.12 * Math.sin(now / 110) : 1;
@@ -335,10 +351,11 @@ function update(now, dt) {
 }
 
 const POSE_WORD = { none: '아직 없어요', open: '손바닥', fist: '주먹', mid: '반쯤 쥔 손' };
-let uiKey = '';
+let uiKey = '', lastMeter = -1;
 function updateSide(now) {
   const h = tracker.state, key = [h.present ? h.pose : 'none', tracker.live, !!tracker.fake, tracker.fps, tracker.lm ? 1 : 0, G.started ? 1 : 0].join('|');
-  $('#seenMeter').style.width = (h.present ? Math.round(h.open * 100) : 0) + '%';
+  const meter = h.present ? Math.round(h.open * 100) : 0;
+  if (meter !== lastMeter) { lastMeter = meter; $('#seenMeter').style.transform = `scaleX(${meter / 100})`; }
   if (key === uiKey) return; uiKey = key;
   $('#seenPose').textContent = POSE_WORD[h.present ? h.pose : 'none'];
   const chip = $('#aiChip'), txt = $('#aiChipText');
@@ -347,8 +364,23 @@ function updateSide(now) {
   else { chip.dataset.on = '0'; txt.textContent = tracker.lm ? '손 인식 준비 끝' : '손 인식 준비 중'; }
 }
 
+// 성능 표시(P 키): 화면이 1초에 몇 번 그려지는지, AI가 한 번 분석하는 데 얼마나 걸리는지 보여 준다.
+const perf = { t0: 0, n: 0, worst: 0, fps: 0, lastWorst: 0 };
+const hud = $('#hud');
+function tickPerf(now, gap) {
+  if (!perf.t0) { perf.t0 = now; return; }
+  perf.n++; if (gap > perf.worst) perf.worst = gap;
+  if (now - perf.t0 < 1000) return;
+  perf.fps = Math.round(perf.n * 1000 / (now - perf.t0)); perf.lastWorst = Math.round(perf.worst); perf.t0 = now; perf.n = 0; perf.worst = 0;
+  if (hud.hidden) return;
+  const v = tracker.video, where = tracker.mode === 'worker' ? '별도 스레드' : tracker.mode === 'main' ? '화면 스레드' : '준비 중';
+  hud.textContent = `화면 ${perf.fps}fps · 가장 느린 프레임 ${perf.lastWorst}ms
+AI ${tracker.fps}회/초 · 한 번에 ${Math.round(tracker.inferMs)}ms · ${where} ${tracker.delegate}
+카메라 ${v.videoWidth || 0}×${v.videoHeight || 0} · 화면 ${Math.round(G.w * G.dpr)}×${Math.round(G.h * G.dpr)}`;
+}
 function frame(now) {
-  const dt = Math.min(0.05, Math.max(0, (now - G.last) / 1000)); G.last = now;
+  const gap = now - G.last, dt = Math.min(0.05, Math.max(0, gap / 1000)); G.last = now;
+  tickPerf(now, gap);
   update(now, dt);
   ctx.setTransform(G.dpr, 0, 0, G.dpr, 0, 0); ctx.clearRect(0, 0, G.w, G.h);
   drawBoard(now); drawAim(now); drawFly(now); drawBits(dt);
@@ -369,6 +401,7 @@ document.addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) quickThrow(performance.now()); }
   else if (e.key === 's' || e.key === 'S' || e.key === 'ㄴ') settingsUI.open();
   else if (e.key === 'f' || e.key === 'F' || e.key === 'ㄹ') toggleFull();
+  else if (e.key === 'p' || e.key === 'P' || e.key === 'ㅔ') hud.hidden = !hud.hidden;
 });
 function toggleFull() { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); }
 $('#btnFull').addEventListener('click', toggleFull);
@@ -428,4 +461,4 @@ const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 if ('serviceWorker' in navigator && (!isLocal || new URLSearchParams(location.search).has('sw'))) navigator.serviceWorker.register('sw.js').catch(e => console.warn('오프라인 캐시 등록 실패', e));
 
 // 자동 테스트와 시연용 손잡이
-window.__dart = { G, tracker, buddy, get S() { return S; }, get D() { return D; }, applySettings, quickThrow, begin };
+window.__dart = { G, tracker, buddy, perf, get S() { return S; }, get D() { return D; }, applySettings, quickThrow, begin };

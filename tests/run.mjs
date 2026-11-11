@@ -55,8 +55,14 @@ const noExternal = () => { const ext = requests.filter(u => !u.startsWith(ORIGIN
 await metrics(1600, 900);
 await t('첫 화면·모델 불러오기·오류 0·외부 요청 0', async () => {
   await load(ORIGIN + '/');
-  const d = await ev(`await until(()=>A()&&A().tracker.lm,30000,'모델'); return A().tracker.delegate + ' / ' + $('#gateStatus').textContent`);
+  const d = await ev(`await until(()=>A()&&A().tracker.lm,30000,'모델'); return A().tracker.mode + ' ' + A().tracker.delegate + ' / ' + $('#gateStatus').textContent`);
+  if (!d.startsWith('worker')) throw new Error('손 인식이 별도 스레드에서 돌지 않음: ' + d);
   noErrors('로드'); noExternal(); await shot('1-gate'); return d;
+});
+
+await t('별도 스레드에서도 외부 요청이 두 겹으로 막힘(CSP 물려받음 + 요청 차단)', async () => {
+  const r = await ev(`const p=await A().tracker.probe(); return p ? {csp:p.csp, evalBlocked:p.evalBlocked, patched:p.patched} : null`);
+  if (!r || !r.patched || !(r.csp || r.evalBlocked)) throw new Error(JSON.stringify(r)); return JSON.stringify(r);
 });
 
 if (IMG_DIR) {
@@ -65,7 +71,7 @@ if (IMG_DIR) {
     await t(`실제 사진 손 인식: ${file}`, async () => {
       const src = 'data:image/jpeg;base64,' + fs.readFileSync(path.join(IMG_DIR, file)).toString('base64');
       const r = await ev(`const img=new Image(); img.src=${JSON.stringify(src)}; await img.decode();
-        const tr=A().tracker; let r; for(let i=0;i<4;i++){ window.__ts=(window.__ts||performance.now()+1000)+40; r=tr.analyze(img, window.__ts); await wait(20); }
+        const tr=A().tracker; let r; for(let i=0;i<4;i++){ r=await tr.analyzeImage(img); await wait(20); }
         return {present:r.present, n:r.hands.length, open:r.present?+r.open.toFixed(2):null, pose:r.present?tr.pose(r.open,'none'):null, x:r.present?+r.x.toFixed(2):null}`);
       if (!r.present) throw new Error('손을 찾지 못함');
       if (want !== 'any' && r.pose !== want) throw new Error(`판정 ${r.pose}(펴짐 ${r.open}), 기대 ${want}`);
@@ -163,6 +169,15 @@ await t('가짜 카메라로 시작: 영상 분석이 실제로 돈다', async (
   await shot('5-live'); noErrors('카메라'); noExternal(); return r;
 });
 
+await t('화면 부드러움: 카메라를 분석하는 중에도 프레임이 밀리지 않음(판 회전 최고 속도)', async () => {
+  const r = await ev(`const a=A(); a.applySettings({...a.S, spin:100}); await wait(600); const ts=[]; await new Promise(res=>{const f=t=>{ts.push(t); if(ts.length<181) requestAnimationFrame(f); else res();}; requestAnimationFrame(f);});
+    const d=ts.slice(1).map((t,i)=>t-ts[i]); const avg=d.reduce((x,y)=>x+y,0)/d.length, worst=Math.max(...d), slow=d.filter(x=>x>34).length;
+    return {avg:+avg.toFixed(1), worst:+worst.toFixed(1), slow, frames:d.length, ai:a.tracker.fps, mode:a.tracker.mode||'main'}`, 90000);
+  // 손 인식이 별도 스레드에서 돌면 느린 프레임(34ms 초과)이 열에 하나를 넘지 않아야 한다.
+  if (r.mode === 'worker' && r.slow > r.frames * 0.1) throw new Error('느린 프레임 ' + r.slow + '/' + r.frames + ' ' + JSON.stringify(r));
+  return JSON.stringify(r);
+});
+
 await t('카메라 없이 시작한 뒤 게임 화면에서 카메라 켜기', async () => {
   await load(ORIGIN + '/');
   const r = await ev(`await until(()=>A()&&A().tracker.lm,30000,'모델'); $('#btnNoCam').click(); await wait(200); const a=A();
@@ -180,7 +195,7 @@ await t('좁은 창(1024×600)에서 가로 넘침 없음', async () => {
 await t('오프라인 캐시: 서버를 꺼도 다시 열리고 손 인식 모델까지 불러온다', async () => {
   await load(ORIGIN + '/?sw=1');
   const n = await ev(`await navigator.serviceWorker.ready; await until(()=>navigator.serviceWorker.controller,20000,'서비스 워커'); const c=await caches.open((await caches.keys())[0]); return (await c.keys()).length`, 60000);
-  if (n < 12) throw new Error('캐시된 파일 ' + n + '개');
+  if (n < 13) throw new Error('캐시된 파일 ' + n + '개');
   server.closeAllConnections(); await new Promise(r => server.close(r));
   await load(ORIGIN + '/?sw=1', 1500);
   const r = await ev(`await until(()=>A()&&A().tracker.lm,30000,'오프라인 모델'); $('#btnNoCam').click(); await wait(300); return A().tracker.delegate+', 상태 '+A().G.state+', 범례 '+$$('#legend li').length+'칸'`, 50000);

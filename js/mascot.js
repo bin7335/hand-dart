@@ -49,10 +49,12 @@ export class Buddy {
     this.node = wrap.querySelector('.mas'); this.say = wrap.querySelector('.bubble');
     this.x = 0; this.mood = 'idle'; this.running = false; this.home = 0;
     this.nextAntic = 0; this.nextTrip = 0; this.nextFollow = 0; this.sayT = 0; this.runT = 0;
-    this.moveTo(this.limit(0), true);
+    this.measure(); this.moveTo(this.limit(0), true);
   }
-  width() { return this.wrap.offsetWidth || 120; }
-  limit(x) { const w = this.stage.clientWidth, pad = w * 0.02; return Math.min(Math.max(pad, w - this.width() - pad), Math.max(pad, x)); }
+  // 크기는 창 크기가 바뀔 때만 다시 잰다(매 프레임 재면 화면이 버벅인다).
+  measure() { this.w = this.wrap.offsetWidth || 120; this.sw = this.stage.clientWidth; this.sh = this.stage.clientHeight; }
+  width() { return this.w; }
+  limit(x) { const w = this.sw, pad = w * 0.02; return Math.min(Math.max(pad, w - this.width() - pad), Math.max(pad, x)); }
   centerX() { return this.x + this.width() / 2; }
   moveTo(x, instant) {
     const dist = Math.abs(x - this.x); this.x = x;
@@ -75,22 +77,22 @@ export class Buddy {
     this.say.hidden = true; void this.say.offsetWidth; this.say.textContent = text; this.say.hidden = false;
     this.sayT = setTimeout(() => { this.say.hidden = true; }, ms);
   }
-  resize() { clearTimeout(this.runT); this.running = false; setMascot(this.node, this.mood); this.moveTo(this.limit(this.x), true); }
+  resize() { this.measure(); clearTimeout(this.runT); this.running = false; setMascot(this.node, this.mood); this.moveTo(this.limit(this.x), true); }
   // 매 프레임. aim: 조준점(없으면 null), calm: 혼자 놀아도 되는 때, follow: 조준점을 따라 달릴 때
   tick(now, aim, calm, follow) {
     if (aim) {
       const dx = aim.x - this.centerX();
-      gaze(this.node, Math.abs(dx) < this.width() * 0.5 ? 0 : Math.sign(dx), aim.y < this.stage.clientHeight * 0.5 ? -1 : 0);
+      gaze(this.node, Math.abs(dx) < this.width() * 0.5 ? 0 : Math.sign(dx), aim.y < this.sh * 0.5 ? -1 : 0);
     } else gaze(this.node, 0, 0);
     if (!this.nextAntic) { this.nextAntic = now + 3000; this.nextTrip = now + 9000; }
     if (this.running) return;
     if (aim && follow) {
       // 조준점이 멀어지면 그 아래로 달려간다(너무 자주 뛰지 않게 0.9초 간격)
-      if (now > this.nextFollow && Math.abs(aim.x - this.centerX()) > this.stage.clientWidth * 0.16) { this.nextFollow = now + 900; this.runTo(aim.x - this.width() / 2); }
+      if (now > this.nextFollow && Math.abs(aim.x - this.centerX()) > this.sw * 0.16) { this.nextFollow = now + 900; this.runTo(aim.x - this.width() / 2); }
       return;
     }
     if (!calm) return;
     if (now > this.nextAntic) { this.nextAntic = now + 5000 + Math.random() * 4000; this.antic(['hop', 'look', 'wiggle', 'squash'][Math.floor(Math.random() * 4)]); }
-    if (now > this.nextTrip) { this.nextTrip = now + 13000 + Math.random() * 9000; this.home = this.home ? 0 : 1; this.runTo(this.home ? this.stage.clientWidth : 0); }
+    if (now > this.nextTrip) { this.nextTrip = now + 13000 + Math.random() * 9000; this.home = this.home ? 0 : 1; this.runTo(this.home ? this.sw : 0); }
   }
 }
