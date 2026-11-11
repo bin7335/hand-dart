@@ -5,6 +5,11 @@
 
 ## 실행
 
+웹에서 바로 열기: https://bin7335.github.io/hand-dart/
+한 번 열어 두면 인터넷이 끊겨도 같은 기기·같은 브라우저에서 계속 동작해요.
+
+내 컴퓨터에서 실행(인터넷이 전혀 없을 때):
+
 1. `start.bat`을 더블클릭해요. (Node.js 필요. 직접 실행: `node serve.mjs`)
 2. 브라우저에서 `http://localhost:5173/` 이 열리면 카메라를 고르고 **카메라 켜고 시작하기**를 눌러요.
 3. `F`를 눌러 전체 화면으로 바꿔요.
@@ -64,6 +69,7 @@ js/mascot.js      도우미 캐릭터
 js/sfx.js         효과음(Web Audio)
 vendor/mediapipe/ 손 인식 라이브러리·모델
 serve.mjs         로컬 서버
+sw.js             오프라인 캐시(배포 주소에서만 동작. 파일을 바꾸면 VERSION을 올려요)
 tests/run.mjs     자동 테스트
 ```
 

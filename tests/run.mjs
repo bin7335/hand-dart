@@ -168,8 +168,19 @@ await t('좁은 창(1024×600)에서 가로 넘침 없음', async () => {
   if (w !== '1024x600') throw new Error('크기 ' + w); return w;
 });
 
+await t('오프라인 캐시: 서버를 꺼도 다시 열리고 손 인식 모델까지 불러온다', async () => {
+  await load(ORIGIN + '/?sw=1');
+  const n = await ev(`await navigator.serviceWorker.ready; await until(()=>navigator.serviceWorker.controller,20000,'서비스 워커'); const c=await caches.open((await caches.keys())[0]); return (await c.keys()).length`, 60000);
+  if (n < 12) throw new Error('캐시된 파일 ' + n + '개');
+  server.closeAllConnections(); await new Promise(r => server.close(r));
+  await load(ORIGIN + '/?sw=1', 1500);
+  const r = await ev(`await until(()=>A()&&A().tracker.lm,30000,'오프라인 모델'); $('#btnNoCam').click(); await wait(300); return A().tracker.delegate+', 상태 '+A().G.state+', 범례 '+$$('#legend li').length+'칸'`, 50000);
+  const bad = [...new Set(errors)].filter(x => !/AudioContext|ERR_CONNECTION_REFUSED|Failed to fetch/.test(x)); if (bad.length) throw new Error(bad.join(' / '));
+  return '캐시 ' + n + '개, ' + r;
+});
+
 const fail = results.filter(r => !r.ok);
 console.log(`\n${results.length - fail.length}/${results.length} 통과`);
-sock.close(); chrome.kill(); server.close();
+sock.close(); chrome.kill(); if (server.listening) server.close();
 try { fs.rmSync(udd, { recursive: true, force: true }); } catch {}
 process.exit(fail.length ? 1 : 0);

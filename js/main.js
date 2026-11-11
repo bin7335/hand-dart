@@ -405,5 +405,9 @@ applySettings(S); resize(); refreshCameras(); setMascot($('#gateMascot'), 'wave'
 go('wait', performance.now());
 requestAnimationFrame(t => { G.last = t; requestAnimationFrame(frame); });
 
+// 오프라인 캐시. 개발용 localhost에서는 예전 파일이 보이지 않게 끈다(?sw=1 로 켤 수 있다).
+const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+if ('serviceWorker' in navigator && (!isLocal || new URLSearchParams(location.search).has('sw'))) navigator.serviceWorker.register('sw.js').catch(e => console.warn('오프라인 캐시 등록 실패', e));
+
 // 자동 테스트와 시연용 손잡이
 window.__dart = { G, tracker, buddy, get S() { return S; }, get D() { return D; }, applySettings, quickThrow, begin };
