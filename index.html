@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>손짓 다트 · 손으로 던져 체험을 골라요</title>
 <meta name="description" content="웹캠 앞에서 주먹을 쥐었다 펴면 다트가 날아가요. 박람회 부스에서 어떤 체험을 할지 골라 주는 손 인식 다트판이에요.">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob: mediastream:; connect-src 'self' data: blob:; frame-src 'self' https: http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob: mediastream:; connect-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta property="og:title" content="손짓 다트">
 <meta property="og:description" content="웹캠 앞에서 주먹을 쥐었다 펴면 다트가 날아가요. 어떤 체험을 할지 손으로 골라요.">
 <meta property="og:type" content="website">
@@ -16,7 +16,7 @@
 <header class="slab">
   <div class="slab__row">
     <span class="wordmark">손짓 다트</span>
-    <span class="slab__sub">상상하던 것을 실현하는 AI 공방 · 손으로 던져서 체험을 골라요</span>
+    <span class="slab__sub">손으로 던져서 체험을 골라요</span>
     <span class="slab__ai" id="aiChip" data-on="0"><i></i><b id="aiChipText">손 인식 준비 중</b></span>
     <button class="iconbtn" id="btnFull" type="button" title="전체 화면 (F)">전체 화면</button>
     <button class="iconbtn" id="btnSet" type="button" title="설정 (S)">설정</button>
@@ -45,17 +45,6 @@
       <p class="result__name" id="resultName">체험 1</p>
       <p class="result__go" id="resultGo">이 체험으로 가 볼까요?</p>
       <div class="result__bar"><i id="resultBar"></i></div>
-    </div>
-
-    <!-- 다트 뒤에 나오는 체험 선택 화면: 손바닥으로 커서를 옮기고, 머물거나 주먹을 쥐면 고른다 -->
-    <div class="pick" id="pick" hidden>
-      <video class="pick__video" id="pickVideo" playsinline muted aria-hidden="true"></video>
-      <i class="pick__scrim" aria-hidden="true"></i>
-      <p class="pick__eyebrow">상상하던 것을 실현하는 AI 공방</p>
-      <h2 class="pick__title" id="pickTitle">어떤 체험을 해 볼까요?</h2>
-      <p class="pick__hint" id="pickHint" data-mode="fist"><span class="pick__hint-icon" data-hand="fist"></span><span id="pickHintText">원하는 카드 위에서 주먹을 꽉 쥐세요!</span></p>
-      <div class="pick__grid" id="pickGrid"></div>
-      <span class="pick__cursor" id="pickCursor" hidden><i id="pickCursorIcon"></i></span>
     </div>
   </section>
 
@@ -90,16 +79,6 @@
   <span>Claude Code로 만든 비공식 체험용 앱이에요. Anthropic 공식 서비스가 아니에요.</span>
 </footer>
 
-<!-- 고른 체험이 열리는 자리. 위쪽 띠의 "처음으로"를 누르면 다트 첫 화면으로 돌아온다 -->
-<div class="run" id="run" hidden>
-  <div class="run__bar">
-    <button class="btn btn--primary btn--small" id="btnHome" type="button">처음으로 (R)</button>
-    <b class="run__name" id="runName"></b>
-    <span class="run__tip">체험이 끝나면 왼쪽의 "처음으로"를 눌러 주세요</span>
-  </div>
-  <div class="run__frame" id="runFrame"></div>
-</div>
-
 <!-- 운영자가 한 번 누르는 시작 화면: 카메라와 소리를 켠다 -->
 <div class="gate" id="gate">
   <div class="gate__card">
@@ -114,7 +93,7 @@
       <button class="btn btn--primary" id="btnStart" type="button">카메라 켜고 시작하기</button>
       <button class="btn" id="btnNoCam" type="button">카메라 없이 해 보기</button>
     </div>
-    <p class="gate__hint">운영 단축키: 스페이스바 던지기 · R 처음으로 · F1-F4 체험 바로 열기 · S 설정 · F 전체 화면 · P 성능 표시</p>
+    <p class="gate__hint">운영 단축키: 스페이스바 던지기 · S 설정 · F 전체 화면 · P 성능 표시</p>
   </div>
 </div>
 
@@ -123,7 +102,7 @@
     <div class="sheet__head"><h2>설정</h2><button class="iconbtn iconbtn--ink" value="close" type="submit">닫기</button></div>
     <div class="sheet__body">
       <section>
-        <h3>다트판 칸과 체험 주소 <small id="segCount"></small></h3>
+        <h3>다트판 칸 <small id="segCount"></small></h3>
         <ul class="segs" id="segList"></ul>
         <button class="btn btn--small" id="btnAddSeg" type="button">칸 추가</button>
       </section>
@@ -138,7 +117,6 @@
       <section>
         <h3>진행</h3>
         <label class="range"><span>결과 보여 주는 시간</span><input type="range" id="setResult" min="3" max="15" step="1"><output id="outResult"></output></label>
-        <label class="check"><input type="checkbox" id="setPick"><span>다트 뒤에 체험 선택 화면 보여 주기 (주소를 적은 칸이 있을 때)</span></label>
         <label class="check"><input type="checkbox" id="setSound"><span>효과음 켜기</span></label>
         <label class="field"><span>카메라</span><select id="camSelect2"><option value="">기본 카메라</option></select></label>
       </section>

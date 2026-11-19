@@ -21,7 +21,6 @@ const play = fn => { if (!on || !ac || ac.state !== 'running') return; try { fn(
 
 export const sfx = {
   seen: () => play(t => { tone(660, t, 0.09, { type: 'triangle', gain: 0.1 }); tone(880, t + 0.08, 0.12, { type: 'triangle', gain: 0.1 }); }),
-  tick: () => play(t => tone(740, t, 0.05, { type: 'triangle', gain: 0.06 })),
   grab: () => play(t => { tone(300, t, 0.07, { type: 'square', gain: 0.07 }); tone(520, t + 0.05, 0.09, { type: 'square', gain: 0.07 }); }),
   drop: () => play(t => tone(260, t, 0.16, { type: 'triangle', gain: 0.08, to: 150 })),
   // sec: 다트가 날아가는 시간. 길면 바람 소리도 길게, 멀어지듯 낮아진다.

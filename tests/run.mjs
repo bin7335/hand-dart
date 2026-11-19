@@ -82,7 +82,7 @@ if (IMG_DIR) {
 
 await t('가짜 손으로 한 판: 손바닥 → 주먹 → 펴기 → 결과 → 다음 사람', async () => {
   await load(ORIGIN + '/'); await ev(`await until(()=>A()&&A().tracker.lm,30000,'모델'); $('#btnNoCam').click(); await wait(100);`);
-  const r = await ev(`const a=A(), tr=a.tracker; a.applySettings({...a.S, resultSec:3, pick:false});
+  const r = await ev(`const a=A(), tr=a.tracker; a.applySettings({...a.S, resultSec:3});
     assert(a.G.state==='wait','처음은 wait: '+a.G.state);
     tr.inject({present:true,x:0.5,y:0.44,open:0.95}); await until(()=>a.G.state==='ready',3000,'ready');
     assert($('#coachText').textContent.includes('주먹'),'주먹 안내');
@@ -142,80 +142,10 @@ await t('스페이스바로 던지기(대체 입력)', async () => {
   noErrors('스페이스'); return r;
 });
 
-// ---------- 체험 선택 화면 ----------
-// 칸 4개: 1-3번은 테스트용 체험 주소, 4번은 주소 없음. 판은 멈추고 운은 0으로 해서 겨눈 칸에 그대로 꽂히게 한다.
-const PICK = `const a=A(), G=a.G, tr=a.tracker, Z={x0:0.2,x1:0.8,y0:0.14,y1:0.74};
-  const setup=(o={})=>{ a.home(performance.now()); a.applySettings({...a.S, segs:[0,1,2,3].map(i=>({name:'체험'+(i+1), color:['#e9604c','#2f76d9','#2ea874','#f0b91f'][i], url:i<3?'/tests/stub.html?n='+i:'', desc:i===2?'손을 올리면 보이는 설명':''})), pick:true, resultSec:3, spin:0, scatter:0, bull:false, ...o}); };
-  const throwAt=async(dx,dy)=>{ await until(()=>G.state==='wait'||G.state==='ready',8000,'wait'); G.state='wait'; G.angle=0; G.spin=0; a.quickThrow(performance.now(),{x:G.cx+G.r*dx,y:G.cy+G.r*dy}); G.fly.dur=0; await until(()=>G.state==='result',5000,'결과'); };
-  const handOn=(i,open)=>{ const c=$$('#pickGrid .card')[i]; const nx=(c.offsetLeft+c.offsetWidth/2)/G.w, ny=(c.offsetTop+c.offsetHeight/2)/G.h; tr.inject({present:true,x:Z.x0+nx*(Z.x1-Z.x0),y:Z.y0+ny*(Z.y1-Z.y0),open}); };
-  const frameSrc=()=>{ const f=$('#runFrame iframe'); return f?f.getAttribute('src'):null; };
-  const handOff=async()=>{ tr.inject({present:false}); await wait(80); tr.inject(null); };`;
-
-await t('선택 화면: 다트가 고른 체험을 표시하고, 손을 올려 두기만 해서는 선택되지 않고 주먹을 쥐어야 열림 → 체험 안에서 R을 누르면 처음으로', async () => {
-  const r = await ev(`${PICK} setup(); await throwAt(0.4,-0.4); assert(G.win===0,'1번 칸에 꽂힘: '+G.win);
-    a.quickThrow(performance.now()); await until(()=>G.state==='pick',2000,'선택 화면'); assert(!$('#pick').hidden&&$('#result').hidden,'선택 화면 보임');
-    const cards=$$('#pickGrid .card'); assert(cards.length===4,'카드 4장'); assert(cards[0].classList.contains('is-rec')&&!cards[1].classList.contains('is-rec'),'다트가 고른 카드 표시');
-    assert(cards[3].querySelector('.card__note').textContent.includes('부스'),'주소 없는 칸 안내'); assert($('#pickTitle').textContent.includes('체험1'),'제목: '+$('#pickTitle').textContent);
-    handOn(2,0.95); await wait(500); assert(!$('#pickCursor').hidden,'손 커서 보임'); assert(cards[2].classList.contains('is-hover'),'카드 강조'); assert($('.side').offsetWidth<=1,'오른쪽 칸 숨김: '+$('.side').offsetWidth); assert($('#pickHint').textContent.includes('주먹')&&parseFloat(getComputedStyle($('#pickHint')).fontSize)>=22,'주먹 안내가 크게: '+getComputedStyle($('#pickHint')).fontSize);
-    const d2=cards[2].querySelector('.card__desc'); assert(d2.textContent==='손을 올리면 보이는 설명'&&d2.offsetHeight>0,'손을 올린 카드에 설명'); assert(cards[0].querySelector('.card__desc').offsetHeight===0,'다른 카드는 설명 없음');
-    window.__shotPick=1; return 'ok'`);
-  await shot('7-pick');
-  const r2 = await ev(`${PICK} await wait(3000); assert(G.state==='pick','손을 올려 두기만 해서는 선택되지 않음: '+G.state); const t0=performance.now(); handOn(2,0.04); await until(()=>G.state==='picked',2500,'주먹으로 선택'); const took=performance.now()-t0; assert(G.pick.chosen===2,'3번 카드 선택: '+G.pick.chosen);
-    await until(()=>G.state==='run',3000,'체험 열림'); await handOff(); assert(!$('#run').hidden,'체험 틀 보임'); assert(frameSrc().endsWith('/tests/stub.html?n=2'),'주소 '+frameSrc()); assert($('#runName').textContent==='체험3','이름');
-    const f=$('#runFrame iframe'); await until(()=>a.runner.keys,5000,'체험 화면의 키 받기'); window.__took=took; return 'ok'`);
-  await shot('8-run');
-  const r3 = await ev(`${PICK} const f=$('#runFrame iframe');
-    const inp=f.contentDocument.getElementById('name'); inp.dispatchEvent(new f.contentWindow.KeyboardEvent('keydown',{code:'KeyR',key:'r',bubbles:true})); await wait(80); assert(G.state==='run','이름을 적는 중의 R은 무시');
-    f.contentDocument.body.dispatchEvent(new f.contentWindow.KeyboardEvent('keydown',{code:'KeyR',key:'r',bubbles:true}));
-    await until(()=>G.state==='wait',2000,'처음으로'); assert($('#run').hidden&&!$('#runFrame iframe')&&$('#pick').hidden,'체험 닫힘'); assert($('.side').offsetWidth>100,'오른쪽 칸 다시 보임');
-    return '손만 올린 3.5초 동안은 그대로, 주먹을 쥔 뒤 '+Math.round(window.__took)+'ms에 선택'`);
-  noErrors('선택 화면'); noExternal(); return r3;
-});
-
-await t('선택 화면: 자동으로 넘어가지 않음 → 다트가 고른 카드도 주먹을 쥐어야 열림, 아무도 없으면 처음으로', async () => {
-  const r = await ev(`${PICK} setup(); await throwAt(0.4,0.4); assert(G.win===1,'2번 칸: '+G.win);
-    await until(()=>G.state==='pick',6000,'결과 시간이 지나면 선택 화면'); assert($('#setPickSec')===null,'자동 입장 설정 없음');
-    await wait(6000); assert(G.state==='pick'&&!a.runner.active,'6초가 지나도 그대로: '+G.state);
-    // 아무도 없이 오래 지나면(20초) 처음으로 돌아간다. 기다리는 시간을 당겨서 확인한다.
-    G.pick.activeAt=performance.now()-19500; await until(()=>G.state==='wait',2000,'아무도 없으면 처음으로'); assert($('#pick').hidden&&!a.runner.active,'체험은 열리지 않음');
-    await throwAt(0.4,0.4); a.quickThrow(performance.now()); await until(()=>G.state==='pick',2000,'선택 화면'); const t0=performance.now();
-    handOn(1,0.95); await wait(1200); handOn(1,0.04); await until(()=>G.state==='run',6000,'다트가 고른 카드에서 주먹을 쥐어 열기'); await handOff(); assert(a.runner.index===1&&frameSrc().endsWith('n=1'),'2번 체험: '+frameSrc());
-    a.home(performance.now()); assert(G.state==='wait'&&!a.runner.active,'처음으로'); return '선택 화면이 뜬 뒤 '+Math.round(performance.now()-t0)+'ms에 열림'`, 40000);
-  noErrors('손짓으로만 선택'); return r;
-});
-
-await t('선택 화면: 주먹을 쥐면 바로 선택, 주소 없는 칸은 안내만 하고 처음으로', async () => {
-  const r = await ev(`${PICK} setup(); await throwAt(0.4,-0.4); a.quickThrow(performance.now()); await until(()=>G.state==='pick',2000,'선택 화면');
-    handOn(3,0.95); await wait(1000); assert(G.state==='pick','아직 선택 전'); const t0=performance.now(); handOn(3,0.04);
-    await until(()=>G.state==='picked',2500,'주먹으로 선택'); const took=performance.now()-t0; assert(G.pick.chosen===3,'4번 카드'); await handOff();
-    assert($('#pickTitle').textContent.includes('부스 안에서'),'안내: '+$('#pickTitle').textContent);
-    await until(()=>G.state==='wait',6000,'처음으로'); assert(!a.runner.active&&$('#run').hidden,'체험은 열리지 않음'); return '주먹 뒤 '+Math.round(took)+'ms'`);
-  noErrors('주먹 선택'); return r;
-});
-
-await t('도우미 키: F2로 체험 바로 열기, "처음으로" 버튼, 열 수 없는 주소는 무시', async () => {
-  await ev(`${PICK} setup(); await until(()=>G.state==='wait'||G.state==='ready',8000,'wait');`);
-  await send('Input.dispatchKeyEvent', { type: 'keyDown', code: 'F2', key: 'F2', windowsVirtualKeyCode: 113 });
-  await send('Input.dispatchKeyEvent', { type: 'keyUp', code: 'F2', key: 'F2', windowsVirtualKeyCode: 113 });
-  const r = await ev(`${PICK} await until(()=>G.state==='run',3000,'F2'); assert(a.runner.index===1&&frameSrc().endsWith('n=1'),'2번 체험'); $('#btnHome').click(); assert(G.state==='wait'&&!$('#runFrame iframe'),'버튼으로 처음으로');
-    const m=await import('/js/settings.js'); const bad=['javascript:alert(1)','data:text/html,<b>x</b>','  ','file:///c:/x.html'].filter(u=>m.openUrl(u)!=='');
-    assert(!bad.length,'열면 안 되는 주소: '+bad); assert(m.openUrl('example.com/app')==='https://example.com/app','앞을 뺀 주소'); assert(m.openUrl('localhost:8000/x')==='http://localhost:8000/x','localhost');
-    a.applySettings({...a.S, segs:a.S.segs.map((g,i)=>i?g:{...g,url:'javascript:window.__xss=1'})}); assert(a.jump(0,performance.now())===false&&G.state==='wait'&&!window.__xss,'위험한 주소는 열지 않음');
-    const old=m.sanitize({v:2,segs:[1,2,3,4].map(i=>({name:'체험 '+i,color:m.PALETTE[i-1]}))}), mine=m.sanitize({v:2,segs:[{name:'로봇',color:m.PALETTE[0]},{name:'드론',color:m.PALETTE[1]}]});
-    assert(old.segs[0].name==='AI 코딩 공방'&&old.segs.every(g=>g.url&&g.desc),'이름을 안 바꾼 예전 설정은 새 기본 칸으로'); const prev=m.sanitize({v:3,segs:['코딩공방','시선추적','거북목','관상'].map((n,i)=>({name:n,color:m.PALETTE[i],url:m.defaults().segs[i].url}))}); assert(prev.segs[3].name==='AI가 알려주는 관상'&&prev.segs[1].name==='집중력 레벨 테스트'&&prev.segs[1].desc,'예전 기본 칸도 새 이름으로: '+prev.segs.map(g=>g.name)); const long=m.sanitize({v:4,segs:m.defaults().segs.map((g,i)=>i===1?{...g,name:'시선추적 집중력 레벨 테스트'}:g)}); assert(long.segs[1].name==='집중력 레벨 테스트','긴 예전 이름도 줄인 이름으로: '+long.segs[1].name); assert(mine.segs.length===2&&mine.segs[0].name==='로봇'&&mine.segs[0].url==='','직접 적은 칸은 그대로');
-    return old.segs.map(g=>g.name).join('·')`);
-  noErrors('도우미 키'); noExternal(); return r;
-});
-
-await t('선택 화면을 끄면 예전처럼 결과 뒤에 바로 다음 사람', async () => {
-  const r = await ev(`${PICK} setup({pick:false}); await throwAt(0.4,-0.4); await until(()=>G.state==='wait'||G.state==='ready',6000,'다음 차례'); assert($('#pick').hidden&&!a.runner.active,'선택 화면 없음'); return G.state`);
-  noErrors('선택 화면 끔'); return r;
-});
-
 await t('설정 창: 칸 추가·이름에 태그를 넣어도 글자로만 표시·저장 후 복원', async () => {
   const XSS = `"'><img src=x onerror="window.__xss=1"><svg onload="window.__xss=1">`;
   const r = await ev(`const a=A(); a.applySettings({...a.S, segs:a.S.segs.slice(0,2)}); $('#btnSet').click(); await wait(150); assert($('#sheet').open,'설정 열림');
-    $('#btnAddSeg').click(); $('#btnAddSeg').click(); await wait(50); const inputs=$$('#segList input[type=text]:not(.segs__url):not(.segs__desc)'); assert(inputs.length===4,'칸 4개: '+inputs.length); assert($$('#segList .segs__url').length===4&&$$('#segList .segs__desc').length===4,'칸마다 설명·주소 칸');
+    $('#btnAddSeg').click(); $('#btnAddSeg').click(); await wait(50); const inputs=$$('#segList input[type=text]'); assert(inputs.length===4,'칸 4개: '+inputs.length);
     inputs[0].value=${JSON.stringify(XSS)}.slice(0,20); inputs[0].dispatchEvent(new Event('input',{bubbles:true}));
     inputs[1].value='인공지능 그림 그리기 체험'; inputs[1].dispatchEvent(new Event('input',{bubbles:true}));
     $('#setSpin').value=55; $('#setSpin').dispatchEvent(new Event('input',{bubbles:true})); await wait(200);
@@ -246,30 +176,6 @@ await t('화면 부드러움: 카메라를 분석하는 중에도 프레임이 �
   // 손 인식이 별도 스레드에서 돌면 느린 프레임(34ms 초과)이 열에 하나를 넘지 않아야 한다.
   if (r.mode === 'worker' && r.slow > r.frames * 0.1) throw new Error('느린 프레임 ' + r.slow + '/' + r.frames + ' ' + JSON.stringify(r));
   return JSON.stringify(r);
-});
-
-await t('체험이 열려 있는 동안 다트 카메라를 끄고, 처음으로 돌아오면 다시 켬', async () => {
-  const r = await ev(`const a=A(), G=a.G; a.applySettings({...a.S, spin:30, segs:a.S.segs.map((g,i)=>({...g,url:i?'':'/tests/stub.html'}))}); assert(a.tracker.live,'카메라 켜져 있음');
-    assert(a.jump(0,performance.now()),'체험 열기'); assert(!a.tracker.live&&$('#cam').dataset.live==='0'&&G.state==='run','카메라 꺼짐');
-    a.home(performance.now()); await until(()=>a.tracker.live&&$('#cam').dataset.live==='1',15000,'카메라 다시 켜짐'); await until(()=>a.tracker.fps>0,15000,'분석'); return G.state+', '+a.tracker.fps+'fps'`, 50000);
-  noErrors('카메라 되돌리기'); noExternal(); return r;
-});
-
-await t('MR 선택 화면: 카메라가 켜져 있으면 영상 위에 카드가 뜨고, 커서가 영상 속 손 위치에 놓임', async () => {
-  const r = await ev(`${PICK} assert(tr.live,'카메라 켜져 있음'); const m=await import('/js/settings.js'); setup({segs:m.defaults().segs.map((g,i)=>({...g,url:i<3?'/tests/stub.html?n='+i:''}))}); await throwAt(0.4,-0.4); a.quickThrow(performance.now()); await until(()=>G.state==='pick',2000,'선택 화면');
-    const p=$('#pick'), v=$('#pickVideo'); assert(p.dataset.mr==='1','MR 모드'); await until(()=>v.videoWidth>0&&!v.paused,5000,'배경 영상 재생'); assert(getComputedStyle(v).display!=='none','영상 보임');
-    const vw=tr.video.videoWidth, vh=tr.video.videoHeight, s=Math.max(G.w/vw,G.h/vh), mx=(G.w-vw*s)/2, my=(G.h-vh*s)/2;
-    const g=$('#pickGrid'), zl=mx+Z.x0*vw*s, zr=mx+Z.x1*vw*s, zb=my+Z.y1*vh*s;
-    assert(g.offsetLeft>=zl-2&&g.offsetLeft+g.offsetWidth<=zr+2&&g.offsetTop+g.offsetHeight<=zb+2,'카드가 손이 잘 잡히는 영역 안: '+[g.offsetLeft,g.offsetLeft+g.offsetWidth,g.offsetTop+g.offsetHeight,zl,zr,zb].map(Math.round));
-    const t1=tr.lastT; await wait(900); assert(tr.lastT!==t1,'오른쪽 칸을 숨겨도 영상 분석은 계속');
-    const c=$$('#pickGrid .card')[3], cx=c.offsetLeft+c.offsetWidth/2, cy=c.offsetTop+c.offsetHeight/2;
-    window.__mrHand={x:(cx-mx)/(vw*s),y:(cy-my)/(vh*s)}; tr.inject({present:true,...window.__mrHand,open:0.95}); await wait(600);
-    assert(Math.abs(G.pick.cur.x-cx)<6&&Math.abs(G.pick.cur.y-cy)<6,'커서가 손 위치에: '+Math.round(G.pick.cur.x)+','+Math.round(G.pick.cur.y)+' / '+Math.round(cx)+','+Math.round(cy)); assert(c.classList.contains('is-hover'),'카드 강조');
-    return vw+'x'+vh+' 영상, 카드 영역 '+Math.round(g.offsetWidth)+'x'+Math.round(g.offsetHeight)`);
-  await shot('9-mr');
-  await ev(`${PICK} tr.inject({present:true,...window.__mrHand,open:0.04}); await until(()=>G.state==='picked',3000,'주먹으로 선택'); assert(G.pick.chosen===3,'4번 카드'); await handOff();
-    await until(()=>G.state==='wait',6000,'처음으로'); assert($('#pick').dataset.mr==='0'&&!$('#pickVideo').srcObject,'배경 영상 정리'); return 'ok'`);
-  noErrors('MR 선택 화면'); noExternal(); return r;
 });
 
 await t('카메라 없이 시작한 뒤 게임 화면에서 카메라 켜기', async () => {
