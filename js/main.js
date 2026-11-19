@@ -1,7 +1,9 @@
 // 손짓 다트: 손바닥을 보여 주고 → 주먹을 쥐어 다트를 잡고 → 손을 펴면 발사.
 // 상태: wait(손 기다림) → ready(손 보임) → aim(다트 잡음) → fly(날아감) → settle(판 멈춤) → result(결과) → wait
+// 주소가 적힌 칸이 있으면 결과 뒤에 이어진다: pick(체험 선택 화면) → picked(골랐음) → run(체험이 열려 있음) → "처음으로"를 누르면 wait
 import { HandTracker, ZONE } from './hand.js';
-import { loadSettings, saveSettings, derive, segName, bindSettings, fillCameras } from './settings.js';
+import { loadSettings, saveSettings, derive, segName, segUrl, usesPick, bindSettings, fillCameras } from './settings.js';
+import { Picker, Runner } from './pick.js';
 import { mountMascots, setMascot, Buddy } from './mascot.js';
 import { sfx, unlock, setSound } from './sfx.js';
 
@@ -11,7 +13,7 @@ const INK = '#1c2030', PAPER = '#f8f5ec', ACCENT = '#f2cc3a', CORAL = '#e9604c';
 const clamp01 = v => Math.min(1, Math.max(0, v));
 const pick = a => a[Math.floor(Math.random() * a.length)];
 
-const stage = $('#stage'), cv = $('#board');
+const stage = $('#stage'), cv = $('#board'), play = $('.play');
 let ctx = cv.getContext('2d');
 const coach = $('#coach'), coachIcon = $('#coachIcon'), coachText = $('#coachText');
 const resultBox = $('#result'), gate = $('#gate'), cam = $('#cam');
@@ -29,6 +31,8 @@ mountMascots();
 let S = loadSettings(), D = derive(S);
 const tracker = new HandTracker($('#video'), $('#overlay'));
 const buddy = new Buddy($('#buddy'), stage);
+const picker = new Picker({ root: $('#pick'), grid: $('#pickGrid'), cursor: $('#pickCursor'), cursorIcon: $('#pickCursorIcon'), title: $('#pickTitle'), hint: $('#pickHintText'), hintBox: $('#pickHint'), video: $('#pickVideo') }, { inkOn, hands: HAND, onPick: i => choose(i, performance.now()) });
+const runner = new Runner({ layer: $('#run'), frame: $('#runFrame'), name: $('#runName') }, { onKey: e => onKey(e) });
 
 const G = {
   state: 'wait', since: 0, last: 0, started: false,
@@ -37,7 +41,9 @@ const G = {
   aim: { x: 0, y: 0 }, aimOn: false, pointer: { x: 0, y: 0 }, pointerAt: -1e9,
   pose: 'none', poseSince: 0, seenAt: -1e9, greeted: false, nextHint: 0,
   fly: null, stuck: null, win: null, bits: [],
+  pick: null, camWas: false,
 };
+const PICK_ARM_MS = 900, PICK_FIST_MS = 600, PICK_IDLE_MS = 20000; // 선택 화면이 뜬 직후 잠깐 쉬는 시간, 카드 위에서 주먹을 쥐고 있어야 하는 시간, 아무도 없을 때 처음으로 돌아가는 시간
 
 function applySettings(next) {
   S = next; D = derive(S); saveSettings(S);
@@ -66,6 +72,7 @@ const COACH = {
   fly: ['throw', '슈웅!'],
   settle: ['throw', '어디에 꽂혔을까요?'],
   result: ['throw', ''],
+  pick: ['palm', ''], picked: ['fist', ''], run: ['palm', ''],
 };
 function setCoach(step, text) {
   const [icon, base] = COACH[step];
@@ -76,6 +83,9 @@ function setCoach(step, text) {
 }
 function go(state, now, text) {
   G.state = state; G.since = now;
+  // 선택 화면에서는 오른쪽 칸(AI가 보는 화면 등)을 치우고 무대를 화면 가득 쓴다.
+  const wide = state === 'pick' || state === 'picked' ? '1' : '0';
+  if (play.dataset.wide !== wide) { play.dataset.wide = wide; resize(); }
   setCoach(state, text || (state === 'wait' && !tracker.live && !tracker.fake ? '마우스로 겨누고, 눌러서 던져요' : ''));
 }
 
@@ -85,7 +95,7 @@ function resize() {
   G.w = b.width; G.h = b.height; G.dpr = Math.min(2, window.devicePixelRatio || 1);
   cv.width = Math.max(1, Math.round(G.w * G.dpr)); cv.height = Math.max(1, Math.round(G.h * G.dpr));
   G.r = Math.max(40, Math.min(G.w * 0.44, G.h * 0.385)); G.cx = G.w / 2; G.cy = G.h * 0.545;
-  buddy.resize();
+  buddy.resize(); if (picker.open) { fitPick(); picker.layout(); }
 }
 new ResizeObserver(resize).observe(stage);
 
@@ -295,13 +305,95 @@ function showResult(now) {
   sfx.win(); buddy.setMood('cheer'); buddy.antic('spin'); buddy.talk(bull ? '정중앙이에요!' : pick(['나이스 샷!', '멋져요!', '와, 꽂혔어요!']), 3200);
 }
 function reset(now) {
-  resultBox.hidden = true; G.win = null; G.spinTarget = 1; G.fly = null;
+  resultBox.hidden = true; picker.hide(); G.pick = null; G.win = null; G.spinTarget = 1; G.fly = null;
   buddy.setMood('idle'); go('wait', now); renderLegend();
+}
+
+// ---------- 체험 선택 화면 ----------
+// 결과 화면이 끝났을 때: 주소가 적힌 칸이 있으면 선택 화면으로, 없으면 예전처럼 다음 사람 차례로.
+function afterResult(now) { if (usesPick(S)) openPick(now); else reset(now); }
+function openPick(now) {
+  resultBox.hidden = true;
+  G.pick = { hover: -1, hoverSince: now, cur: null, activeAt: now, chosen: -1 };
+  // 카메라가 켜져 있으면 MR 모드: 카메라 영상 위에 카드를 띄우고, 커서는 영상 속 손 위치에 붙인다.
+  G.pick.mr = tracker.live && tracker.video.videoWidth > 0;
+  go('pick', now); fitPick(); picker.show(S, G.win, G.pick.mr ? tracker.stream : null);
+  buddy.setMood('wave'); buddy.talk(G.win >= 0 ? '이 체험 어때요?' : '마음에 드는 걸 골라요!', 2600);
+}
+// MR 모드에서 카메라 영상이 무대에 놓이는 자리. CSS의 object-fit: cover와 같은 계산이라 영상 속 손과 커서가 겹친다.
+function pickMap() {
+  const vw = tracker.video.videoWidth, vh = tracker.video.videoHeight;
+  if (!G.pick || !G.pick.mr || !vw) return null;
+  const s = Math.max(G.w / vw, G.h / vh);
+  return { x: (G.w - vw * s) / 2, y: (G.h - vh * s) / 2, w: vw * s, h: vh * s };
+}
+// MR 모드: 카드를 손이 잘 잡히는 영역(다트판을 겨누던 그 영역) 안에만 놓는다.
+function fitPick() {
+  const m = pickMap(), st = $('#pick').style;
+  st.setProperty('--mr-x', m ? Math.max(0, m.x + ZONE.x0 * m.w).toFixed(1) + 'px' : '0px');
+  st.setProperty('--mr-b', m ? Math.max(0, G.h - (m.y + ZONE.y1 * m.h)).toFixed(1) + 'px' : '0px');
+}
+// 손 위치 → 선택 화면 좌표. MR 모드는 영상 속 손 위치 그대로, 아니면 다트판과 같은 영역을 화면 전체에 대응시킨다.
+function handToPick(h) {
+  const m = pickMap();
+  if (m) return { x: Math.min(G.w, Math.max(0, m.x + h.x * m.w)), y: Math.min(G.h, Math.max(0, m.y + h.y * m.h)) };
+  return { x: clamp01((h.x - ZONE.x0) / (ZONE.x1 - ZONE.x0)) * G.w, y: clamp01((h.y - ZONE.y0) / (ZONE.y1 - ZONE.y0)) * G.h };
+}
+function choose(i, now) {
+  if (G.state !== 'pick' || !S.segs[i]) return;
+  const name = segName(S, i), url = segUrl(S, i);
+  G.pick.chosen = i;
+  picker.picked(i, url ? `"${name}" 체험을 열어요` : `"${name}" 체험은 부스 안에서 해요`, url ? '' : '옆에 있는 도우미가 안내해 드려요');
+  go('picked', now); sfx.win(); buddy.setMood('cheer'); buddy.antic('spin'); buddy.talk(url ? '좋아요, 가 볼까요?' : '도우미에게 말해 주세요!', 2600);
+}
+function updatePick(now, dt, hand, on) {
+  const P = G.pick, armed = now - G.since > PICK_ARM_MS;
+  const src = on ? handToPick(hand) : now - G.pointerAt < 3500 ? G.pointer : null;
+  if (src) {
+    if (!P.cur) P.cur = { x: src.x, y: src.y };
+    const k = 1 - Math.exp(-dt / 0.07); P.cur.x += (src.x - P.cur.x) * k; P.cur.y += (src.y - P.cur.y) * k;
+    P.activeAt = now;
+  } else P.cur = null;
+  const hover = P.cur ? picker.hit(P.cur.x, P.cur.y) : -1;
+  if (hover !== P.hover) { P.hover = hover; P.hoverSince = now; picker.setHover(hover); if (hover >= 0) sfx.tick(); }
+  // 손을 올려 두기만 해서는 고르지 않는다. 카드 위에서 주먹을 쥐고 잠깐 버텨야 고른다(선택 화면이 뜬 뒤에 쥔 주먹만). 마우스는 눌러서 고른다.
+  const fist = on && armed && hover >= 0 && G.pose === 'fist' && G.poseSince > G.since;
+  const hold = fist ? clamp01((now - Math.max(G.poseSince, P.hoverSince)) / PICK_FIST_MS) : 0;
+  picker.setCursor(P.cur, on ? G.pose : 'open', hold);
+  if (hold >= 1) { choose(hover, now); return; }
+  // 자동으로 넘어가지 않는다. 아무도 없으면 처음(다트)으로 돌아간다.
+  for (let i = 0; i < S.segs.length; i++) picker.setFill(i, i === hover ? hold : 0);
+  if (now - P.activeAt > PICK_IDLE_MS) reset(now);
+}
+// 체험을 이 화면 안에서 연다. 그 체험이 카메라를 쓸 수 있게 다트의 카메라는 잠시 끈다.
+function openRun(i, now) {
+  const url = segUrl(S, i); if (!url) return false;
+  if (!runner.active) G.camWas = tracker.live;
+  if (tracker.live) { tracker.stop(); cam.dataset.live = '0'; }
+  picker.hide(); resultBox.hidden = true; G.pick = null;
+  runner.open(url, segName(S, i), i); go('run', now); buddy.setMood('idle');
+  return true;
+}
+// 처음으로: 열려 있던 체험을 닫고 다트 첫 화면으로 돌아온다(R 키, 위쪽 띠의 버튼).
+function home(now) {
+  if (!G.started) return;
+  const wasRun = runner.active; runner.close(); reset(now);
+  if (wasRun && G.camWas) {
+    const say = t => { $('#camEmptyText').textContent = t; };
+    turnOnCamera(S.camId, say).then(ok => { if (ok) { say('카메라가 꺼져 있어요'); if (G.state === 'wait') go('wait', performance.now()); } });
+  }
+}
+// 도우미용: 다트를 건너뛰고 칸 번호의 체험을 바로 연다(F1-F4).
+function jump(i, now) {
+  if (!G.started || !segUrl(S, i)) return false;
+  if (!runner.active) reset(now);
+  return openRun(i, now);
 }
 // 대체 입력(스페이스바·마우스): 손 인식 없이 바로 던진다.
 function quickThrow(now, at) {
   if (!G.started) return;
-  if (G.state === 'result') { reset(now); return; }
+  if (G.state === 'result') { afterResult(now); return; }
+  if (G.state === 'pick') { if (!at && G.win >= 0) choose(G.win, now); return; } // 스페이스바: 다트가 고른 체험으로 바로
   if (!['wait', 'ready', 'aim'].includes(G.state)) return;
   const p = at || (G.aimOn ? aimPoint(now) : { x: G.cx + Math.cos(now / 700) * G.r * 0.55, y: G.cy + Math.sin(now / 900) * G.r * 0.55 });
   fire(p.x, p.y, now);
@@ -343,8 +435,14 @@ function update(now, dt) {
     case 'settle': if (now - G.since > 1150) showResult(now); break;
     case 'result':
       $('#resultBar').style.transform = `scaleX(${1 - clamp01((now - G.since) / (S.resultSec * 1000))})`;
-      if (now - G.since > S.resultSec * 1000) reset(now);
+      if (now - G.since > S.resultSec * 1000) afterResult(now);
       break;
+    case 'pick': updatePick(now, dt, hand, on); break;
+    case 'picked':
+      if (now - G.since > 900 && segUrl(S, G.pick.chosen)) openRun(G.pick.chosen, now);
+      else if (now - G.since > 3800) reset(now);
+      break;
+    case 'run': break; // 체험이 열려 있는 동안은 기다린다
   }
   G.spin += (G.spinTarget - G.spin) * (1 - Math.exp(-dt / 0.3));
   G.angle = (G.angle + D.spinRad * G.spin * dt) % TAU;
@@ -382,12 +480,16 @@ function frame(now) {
   const gap = now - G.last, dt = Math.min(0.05, Math.max(0, gap / 1000)); G.last = now;
   tickPerf(now, gap);
   update(now, dt);
-  ctx.setTransform(G.dpr, 0, 0, G.dpr, 0, 0); ctx.clearRect(0, 0, G.w, G.h);
-  drawBoard(now); drawAim(now); drawFly(now); drawBits(dt);
+  const covered = G.state === 'pick' || G.state === 'picked' || G.state === 'run'; // 선택 화면·체험이 다트판을 가리고 있다
+  if (!covered) {
+    ctx.setTransform(G.dpr, 0, 0, G.dpr, 0, 0); ctx.clearRect(0, 0, G.w, G.h);
+    drawBoard(now); drawAim(now); drawFly(now); drawBits(dt);
+  }
+  if (G.state === 'run') { requestAnimationFrame(frame); return; }
   updateSide(now);
-  // 도우미는 날아가는 다트를 눈으로 좇는다
-  const look = G.state === 'fly' && G.fly ? flyPos(flyProgress(now)) : G.aimOn ? G.aim : null;
-  buddy.tick(now, look, G.state === 'wait', G.state === 'ready' || G.state === 'aim');
+  // 도우미는 날아가는 다트(선택 화면에서는 손 커서)를 눈으로 좇는다
+  const look = G.state === 'fly' && G.fly ? flyPos(flyProgress(now)) : G.state === 'pick' ? G.pick.cur : covered ? null : G.aimOn ? G.aim : null;
+  buddy.tick(now, look, G.state === 'wait', G.state === 'ready' || G.state === 'aim' || G.state === 'pick');
   requestAnimationFrame(frame);
 }
 
@@ -396,13 +498,22 @@ stage.addEventListener('pointermove', e => { const b = stage.getBoundingClientRe
 stage.addEventListener('pointerdown', e => { const b = stage.getBoundingClientRect(); quickThrow(performance.now(), { x: e.clientX - b.left, y: e.clientY - b.top }); });
 const sheet = $('#sheet');
 const settingsUI = bindSettings({ dialog: sheet, get: () => structuredClone(S), set: applySettings, cameras: () => camList, onCamera: id => { if (tracker.live) startCamera(id); } });
-document.addEventListener('keydown', e => {
-  if (sheet.open || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+// 열려 있는 체험 화면 안에서 눌린 키도 이 함수로 온다(같은 주소에 있는 체험만).
+function onKey(e) {
+  if (sheet.open || e.ctrlKey || e.altKey || e.metaKey) return;
+  const fn = /^F([1-4])$/.exec(e.key);
+  if (fn) { if (jump(Number(fn[1]) - 1, performance.now())) e.preventDefault(); return; }
+  const t = e.target;
+  if (t && (/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) || t.isContentEditable)) return;
+  if (e.code === 'KeyR') { if (G.started && (G.state !== 'wait' || runner.active)) { e.preventDefault(); home(performance.now()); } return; }
+  if (runner.active) return; // 체험이 열려 있는 동안 나머지 단축키는 그 체험의 것
   if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) quickThrow(performance.now()); }
   else if (e.key === 's' || e.key === 'S' || e.key === 'ㄴ') settingsUI.open();
   else if (e.key === 'f' || e.key === 'F' || e.key === 'ㄹ') toggleFull();
   else if (e.key === 'p' || e.key === 'P' || e.key === 'ㅔ') hud.hidden = !hud.hidden;
-});
+}
+document.addEventListener('keydown', onKey);
+$('#btnHome').addEventListener('click', () => home(performance.now()));
 function toggleFull() { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); }
 $('#btnFull').addEventListener('click', toggleFull);
 $('#btnSet').addEventListener('click', () => settingsUI.open());
@@ -461,4 +572,4 @@ const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 if ('serviceWorker' in navigator && (!isLocal || new URLSearchParams(location.search).has('sw'))) navigator.serviceWorker.register('sw.js').catch(e => console.warn('오프라인 캐시 등록 실패', e));
 
 // 자동 테스트와 시연용 손잡이
-window.__dart = { G, tracker, buddy, perf, get S() { return S; }, get D() { return D; }, applySettings, quickThrow, begin };
+window.__dart = { G, tracker, buddy, perf, picker, runner, get S() { return S; }, get D() { return D; }, applySettings, quickThrow, begin, choose, home, jump };
